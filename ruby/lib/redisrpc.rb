@@ -121,7 +121,7 @@ module RedisRPC
                 begin
                     return_value = eval code
                     rpc_response = {'return_value' => return_value}
-                rescue => err
+                rescue Object => err
                     rpc_response = {'exception' => err}
                 end
                 message = JSON.generate rpc_response
