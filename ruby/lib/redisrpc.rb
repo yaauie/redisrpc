@@ -101,7 +101,12 @@ module RedisRPC
 
         def run
             loop do
-                message_queue, message = @redis_server.blpop @message_queue, 0
+                message_queue, message = @redis_server.blpop @message_queue, 5
+                if message.nil?
+                    # we don't want the blpop to indefinitely block - let it timeout,
+                    # and start the loop again
+                    next
+                end
                 if $DEBUG
                     fail 'assertion failed' if message_queue != @message_queue
                     $stderr.puts 'RPC Request: ' + message
