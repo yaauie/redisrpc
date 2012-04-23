@@ -52,24 +52,27 @@ module RedisRPC
         def method_missing(sym, *args, &block)
             function_call = {'name' => sym.to_s, 'args' => args}
             response_queue = @message_queue + ':rpc:' + rand_string
-            rpc_request = {'function_call' => function_call, 'response_queue' => response_queue}
-            message = MultiJson.dump rpc_request
+            rpc_request = {
+                'function_call' => function_call, 
+                'response_queue' => response_queue
+            }
+            message_send = MultiJson.dump rpc_request
             if $DEBUG
-                $stderr.puts 'RPC Request: ' + message
+                $stderr.puts 'RPC Request: ' + message_send
             end
-            @redis_server.rpush @message_queue, message
+            @redis_server.rpush @message_queue, message_send
             result = @redis_server.blpop response_queue, @timeout
             if result.nil?
                 raise TimeoutException
             end
-            message_queue, message = result
+            message_queue, message_receive = result
             if $DEBUG
                 if message_queue != response_queue
                     fail 'assertion failed'
                 end
-                $stderr.puts 'RPC Response: ' + message
+                $stderr.puts 'RPC Response: ' + message_receive
             end
-            rpc_response = MultiJson.load message
+            rpc_response = MultiJson.load message_receive
             exception = rpc_response['exception']
             if exception != nil
                 raise RemoteException, exception
@@ -78,6 +81,12 @@ module RedisRPC
                 raise RemoteException, 'Malformed RPC Response message: ' + rpc_response
             end
             return rpc_response['return_value']
+        rescue SystemStackError => e
+            puts e.inspect, *e.backtrace
+            raise e
+        ensure
+            # ensure that the item is not still in queue.
+            @redis_server.lrem @message_queue, 0, message_send
         end
 
         def rand_string(size=8)
@@ -119,7 +128,14 @@ module RedisRPC
                 if $DEBUG
                     $stderr.puts 'RPC Response: ' + message
                 end
-                @redis_server.rpush response_queue, message
+
+                @redis_server.multi do
+                    @redis_server.rpush response_queue, message
+                    # ensure the value doesn't stick around forever.
+                    # it's getting blpop'd, so it should be gone instantly
+                    # if not, it's because the client timed out while waiting.
+                    @redis_server.expire response_queue, 30
+                end
             end
         end
 
