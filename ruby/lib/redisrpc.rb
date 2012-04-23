@@ -93,15 +93,16 @@ module RedisRPC
 
     class Server
 
-        def initialize(redis_server, message_queue, local_object)
+        def initialize(redis_server, message_queue, local_object, timeout=nil)
             @redis_server = redis_server
             @message_queue = message_queue
             @local_object = local_object
+            @timeout = timeout
         end
 
         def run
             loop do
-                message_queue, message = @redis_server.blpop @message_queue, 5
+                message_queue, message = @redis_server.blpop @message_queue, timeout
                 if message.nil?
                     # we don't want the blpop to indefinitely block - let it timeout,
                     # and start the loop again
@@ -135,6 +136,14 @@ module RedisRPC
 
         def flush_queue!
             @redis_server.del @message_queue
+        end
+
+        private
+
+        def timeout
+            @timeout or
+            $REDISRPC_SERVER_TIMEOUT or
+            0
         end
     end
 
